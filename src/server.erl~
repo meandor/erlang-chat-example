@@ -1,0 +1,85 @@
+-module(server).
+-export([startMe/0, startMe/1, server/6]).
+
+loadConfig(ConfigFile) ->
+  {ok, Config} = file:consult(ConfigFile),
+  Config.
+
+serverLog() ->
+  erlang:list_to_atom(lists:concat(["Server@", node(), ".log"])).
+
+% Lädt die Config Datei, CMEM und startet den HBQ Prozess
+init(ConfigFile) ->
+  % Lade configs
+  Config = loadConfig(ConfigFile),
+  werkzeug:logging(serverLog(), lists:concat(["Server: server.cfg opened\n"])),
+  % Starte CMEM
+  {ok, RemTime} = werkzeug:get_config_value(clientlifetime, Config),
+  {ok, HBQName} = werkzeug:get_config_value(hbqname, Config),
+  {ok, HBQNode} = werkzeug:get_config_value(hbqnode, Config),
+  CMEM = cmem:initCMEM(RemTime, serverLog()),
+% Starte HBQ
+  %hbq:start(ConfigFile),
+  HBQPID = {HBQName,HBQNode},
+  {Config, CMEM, HBQPID}.
+
+server(Config, CMEM, HBQPID, NextNNr, Timer, Latency) ->
+  receive
+    {ClientPID, getmsgid} ->
+      NewTimer = werkzeug:reset_timer(Timer, Latency, terminate),
+      ClientPID ! {nid, NextNNr},
+      NewNextNNr = NextNNr + 1,
+      server(Config, CMEM, HBQPID, NewNextNNr, NewTimer, Latency);
+    {ClientPID, getmessages} ->
+      NewTimer = werkzeug:reset_timer(Timer, Latency, terminate),
+      NNr = cmem:getClientNNr(CMEM, ClientPID),
+
+      HBQPID ! {self(), {request, deliverMSG, NNr, ClientPID}},
+      werkzeug:logging(serverLog(), lists:concat(["Server: deliver message ", NNr, " to ", erlang:pid_to_list(ClientPID), "\n"])),
+      receive
+        {reply, SendNNr} ->
+          if
+            SendNNr == -1 ->
+              NewCMEM = CMEM;
+            true ->
+              NewCMEM = cmem:updateClient(CMEM, ClientPID, SendNNr, serverLog())
+          end,
+          werkzeug:logging(serverLog(), lists:concat(["Server: client ", erlang:pid_to_list(ClientPID), " got message ", SendNNr, "\n"])),
+          server(Config, NewCMEM, HBQPID, NextNNr, NewTimer, Latency)
+      end;
+    {dropmessage, [INNr, Msg, TSclientout]} ->
+      NewTimer = werkzeug:reset_timer(Timer, Latency, terminate),
+      NewMessage = Msg ++ " " ++ werkzeug:timeMilliSecond(),
+      {HBQName,HBQNode} = HBQPID,
+      werkzeug:logging(serverLog(), lists:concat(["Server: try pushing ", NewMessage, " into hbq ", PID,"\n"])),
+      HBQPID ! {self(), {request, pushHBQ, [INNr, NewMessage, TSclientout]}},
+      receive
+        {reply, ok} ->
+          werkzeug:logging(serverLog(), lists:concat(["Server: message ", INNr, " was added into the HBQ\n"])),
+          server(Config, CMEM, HBQPID, NextNNr, NewTimer, Latency)
+      end;
+    {reply, ok} ->
+      werkzeug:logging(serverLog(), lists:concat(["Server: Starttime: ", werkzeug:timeMilliSecond(), " with PID", pid_to_list(self()), "\n"])),
+      server(Config, CMEM, HBQPID, NextNNr, Timer, Latency);
+    terminate ->
+      werkzeug:logging(serverLog(), lists:concat(["Server: starting shutdown sequence ", werkzeug:timeMilliSecond(), "\n"])),
+      HBQPID ! {self(), {request, dellHBQ}},
+      receive
+        {reply, ok} ->
+          werkzeug:logging(serverLog(), lists:concat(["Server: shutting down ", werkzeug:timeMilliSecond(), "\n"])),
+          ok
+      end
+  end.
+
+startMe() ->
+  startMe("./config/server.cfg").
+
+startMe(ConfigFile) ->
+  {Config, CMEM, HBQPID} = init(ConfigFile),
+  {ok, ServerName} = werkzeug:get_config_value(servername, Config),
+  {ok, Latency} = werkzeug:get_config_value(latency, Config),
+  {ok, Timer} = timer:send_after(round(Latency * 1000), ServerName, terminate),
+  ServerPID = spawn(?MODULE, server, [Config, CMEM, HBQPID, 1, Timer, Latency]),
+  register(ServerName, ServerPID),
+  HBQPID ! {ServerPID, {request, initHBQ}}, % init hbq
+  ServerPID.
