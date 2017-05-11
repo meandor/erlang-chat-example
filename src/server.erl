@@ -35,6 +35,7 @@ startServer(ClientList) ->
   end.
 
 start() ->
+  Config = utils:load_config(),
   ClientList = initClientList(),
   ServerPID = spawn(?MODULE, startServer, [ClientList]),
-  register(server, ServerPID).
+  register(maps:get(serverName, Config), ServerPID).
