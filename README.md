@@ -14,7 +14,7 @@ To start with compiled files, the <nodename> and a <cookie>:
 erl -pa ebin/ -sname <nodename> -setcookie <cookie>
 ````
 
-The server is fixed at node server@localhost
+The server is fixed at node `server@localhost`
 
 ## Usage
 To reload everything in the erlang shell:
@@ -31,13 +31,13 @@ To start a client:
 ````erlang
 client:start({<ClientName,ClientNode>}).
 ````
-Where <ClientName> is client and <ClientNode> the given nodename of the
+Where `<ClientName>` is client and `<ClientNode>` the given nodename of the
 erlang shell.
 
 To send a message from a client:
 ````erlang
 client:sendMessage(<Message>,{<ClientName,ClientNode>}).
 ````
-Where <ClientName> is client and <ClientNode> the given nodename of the
+Where `<ClientName>` is client and `<ClientNode>` the given nodename of the
 erlang shell.
 Message is the string of the message to be sent.
