@@ -8,7 +8,7 @@
 -behaviour(application).
 
 %% Application callbacks
--export([start/2, stop/1]).
+-export([start/2, stop/1, sendMessage/1]).
 
 %%====================================================================
 %% API
@@ -24,3 +24,6 @@ stop(_State) ->
 %%====================================================================
 %% Internal functions
 %%====================================================================
+
+sendMessage(Message) ->
+  neptr_utils:seedPID() ! {message, neptr_utils:peerPID(), Message}.
